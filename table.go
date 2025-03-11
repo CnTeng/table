@@ -189,7 +189,7 @@ func (t *table) renderColumn(b *strings.Builder, row int, col []string) {
 		cells = append(cells, cell)
 	}
 
-	for i := 0; i < maxLines; i++ {
+	for i := range maxLines {
 		for col, cell := range cells {
 			if i < len(cell) {
 				style := t.cellStyle(row, col)
