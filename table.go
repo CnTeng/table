@@ -8,7 +8,7 @@ import (
 
 	"github.com/acarl005/stripansi"
 	"github.com/fatih/color"
-	"github.com/mattn/go-runewidth"
+	"github.com/jedib0t/go-pretty/v6/text"
 	"golang.org/x/term"
 )
 
@@ -48,7 +48,6 @@ type table struct {
 func NewTable(w int, autoExpand bool) Table {
 	if autoExpand {
 		if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-			fmt.Println(width)
 			w = width
 		}
 	}
@@ -171,9 +170,10 @@ func (t *table) autoResize(minWidth, maxWidth []int) []int {
 }
 
 func (t *table) renderCell(s string, width int) []string {
-	lines := wrapText(s, width)
+	lines := strings.Split(text.WrapSoft(s, width), "\n")
 	for i := range lines {
-		lines[i] = leftJustify(lines[i], width)
+		// TODO: add more alignment
+		lines[i] = text.AlignLeft.Apply(lines[i], width)
 	}
 	return lines
 }
@@ -220,7 +220,7 @@ func (t *table) measureTable() (minWidths []int, maxWidths []int) {
 	maxWidths = make([]int, 0, len(t.header))
 
 	for col, h := range t.header {
-		minWidth := runewidth.StringWidth(h)
+		minWidth := text.StringWidth(h)
 		maxWidth := minWidth
 
 		for _, row := range t.rows {
@@ -252,7 +252,7 @@ func longestLine(s string) int {
 			}
 			length = 0
 		} else {
-			length += runewidth.RuneWidth(r)
+			length += text.RuneWidth(r)
 		}
 	}
 
@@ -274,7 +274,7 @@ func longestWord(s string) int {
 			}
 			length = 0
 		} else {
-			length += runewidth.RuneWidth(r)
+			length += text.RuneWidth(r)
 		}
 	}
 
