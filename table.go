@@ -6,7 +6,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/acarl005/stripansi"
 	"github.com/fatih/color"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"golang.org/x/term"
@@ -208,7 +207,7 @@ func (t *table) renderColumn(b *strings.Builder, row int, col []string) {
 }
 
 func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
-	striped := stripansi.Strip(data)
+	striped := text.StripEscape(data)
 
 	minWidth = longestWord(striped)
 	maxWidth = longestLine(striped)
