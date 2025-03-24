@@ -3,61 +3,67 @@ package table
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"unicode"
 
-	"github.com/fatih/color"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"golang.org/x/term"
 )
-
-type Style struct {
-	*color.Color
-}
 
 type Table interface {
 	AddHeader(header ...string)
 	AddRow(vals ...any)
 
-	SetHeaderStyle(style ...color.Attribute)
-	SetRowStyle(row int, style ...color.Attribute)
-	SetColStyle(col int, style ...color.Attribute)
+	SetStyle(style *TableStyle)
+	SetHeaderStyle(style *CellStyle)
+	SetRowStyle(row int, style *CellStyle)
+	SetColStyle(col int, style *CellStyle)
 
 	Render() string
 }
 
+const headerRow = -1
+
 type table struct {
+	// Style of the table
+	style *TableStyle
+
 	// Data of the table
 	header []string
 	rows   [][]string
 
-	// Style of the table
-	extraPadding int
-	intraPadding int
-
-	headerStyle []color.Attribute
-	rowStyle    map[int][]color.Attribute
-	colStyle    map[int][]color.Attribute
-
 	// Attributes of the table
-	width  int
-	widths []int
+	width    int
+	widths   []int
+	isEmpty  map[int]bool
+	rowStyle map[int]*CellStyle
+	colStyle map[int]*CellStyle
 }
 
-func NewTable(w int, autoExpand bool) Table {
-	if autoExpand {
-		if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
-			w = width
+func NewTable() Table {
+	return NewTableWithStyle(defaultTableStyle)
+}
+
+func NewTableWithStyle(style *TableStyle) Table {
+	width := style.DefaultWidth
+	if style.FitToTerminal {
+		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+			width = w
 		}
 	}
 
 	return &table{
-		extraPadding: 0,
-		intraPadding: 1,
-		rowStyle:     make(map[int][]color.Attribute),
-		colStyle:     make(map[int][]color.Attribute),
-		width:        w,
+		style:    style,
+		width:    width,
+		isEmpty:  make(map[int]bool),
+		rowStyle: make(map[int]*CellStyle),
+		colStyle: make(map[int]*CellStyle),
 	}
+}
+
+func (t *table) SetStyle(style *TableStyle) {
+	t.style = style
 }
 
 func (t *table) AddHeader(header ...string) {
@@ -77,28 +83,27 @@ func (t *table) AddRow(vals ...any) {
 	t.rows = append(t.rows, row)
 }
 
-func (t *table) SetHeaderStyle(style ...color.Attribute) {
-	t.headerStyle = style
+func (t *table) SetHeaderStyle(style *CellStyle) {
+	t.rowStyle[headerRow] = style
 }
 
-func (t *table) SetRowStyle(row int, style ...color.Attribute) {
+func (t *table) SetRowStyle(row int, style *CellStyle) {
 	t.rowStyle[row] = style
 }
 
-func (t *table) SetColStyle(col int, style ...color.Attribute) {
+func (t *table) SetColStyle(col int, style *CellStyle) {
 	t.colStyle[col] = style
 }
 
 func (t *table) Render() string {
 	var b strings.Builder
 
-	minWidth, maxWidth := t.measureTable()
+	headerWidths, minWidths, maxWidths := t.measureTable()
 
-	// TODO: is print empty columns
-	t.autoResize(minWidth, maxWidth)
+	t.autoResize(headerWidths, minWidths, maxWidths)
 
 	// render header
-	t.renderColumn(&b, -1, t.header)
+	t.renderColumn(&b, headerRow, t.header)
 
 	// render rows
 	for i, row := range t.rows {
@@ -108,80 +113,48 @@ func (t *table) Render() string {
 	return b.String()
 }
 
-func (t *table) cellStyle(row, col int) Style {
-	style := Style{color.New()}
+func (t *table) cellStyle(row, col int) *CellStyle {
+	s := &CellStyle{WrapText: &t.style.WrapText}
 
-	if row == -1 {
-		style.Add(t.headerStyle...)
+	if row == headerRow {
+		return s.merge(t.rowStyle[headerRow])
 	}
 
-	if s, ok := t.rowStyle[row]; ok {
-		style.Add(s...)
-	}
-
-	if s, ok := t.colStyle[col]; ok {
-		style.Add(s...)
-	}
-
-	return style
+	s.merge(t.rowStyle[row])
+	s.merge(t.colStyle[col])
+	return s
 }
 
-func (t *table) autoResize(minWidth, maxWidth []int) []int {
-	minSum := sum(minWidth)
-	maxSum := sum(maxWidth)
+func (t *table) autoResize(headerWidths, minWidths, maxWidths []int) {
+	minSum := t.sumWidths(minWidths)
+	maxSum := t.sumWidths(maxWidths)
 
-	widths := make([]int, 0, len(t.header))
-
-	overage := t.width - t.intraPadding*(len(t.header)-1) - minSum
-	if maxSum+t.intraPadding <= t.width {
-		widths = maxWidth
-	} else if overage < 0 {
-		longest := 0
-		secondLongest := 0
-		for i, w := range minWidth {
-			if w > minWidth[longest] {
-				secondLongest = longest
-				longest = i
-			} else if w > minWidth[secondLongest] {
-				secondLongest = i
-			}
-		}
-
-		// Case 1: Shorten the longest column
-		widths = minWidth
-		if minWidth[longest] >= widths[secondLongest]-overage {
-			minWidth[longest] += overage
-		} else {
-			dec := widths[longest] - widths[secondLongest]
-			widths[longest] -= dec
-			overage += dec
-
-			half := overage/2 + overage%2
-			minWidth[longest] += half
-			minWidth[secondLongest] += half
-		}
-	} else if overage == 0 {
-		widths = minWidth
+	if t.width-t.extraWidth()-maxSum >= 0 {
+		t.widths = maxWidths
+		return
 	}
-	t.widths = widths
 
-	return widths
+	overage := t.width - t.extraWidth() - minSum
+	if overage == 0 {
+		t.widths = minWidths
+		return
+	} else if overage > 0 {
+		t.widths = t.expandWidths(minWidths, maxWidths, overage)
+		return
+	} else {
+		t.widths = t.shrinkWidths(minWidths, headerWidths, -overage)
+		return
+	}
 }
 
-func (t *table) renderCell(s string, width int) []string {
-	lines := strings.Split(text.WrapSoft(s, width), "\n")
-	for i := range lines {
-		// TODO: add more alignment
-		lines[i] = text.AlignLeft.Apply(lines[i], width)
-	}
-	return lines
-}
-
-func (t *table) renderColumn(b *strings.Builder, row int, col []string) {
-	cells := make([][]string, 0, len(col))
+func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
+	cells := make([][]string, 0, len(cols))
 	maxLines := 0
-	for i, c := range col {
-		cell := t.renderCell(c, t.widths[i])
+	for col, cell := range cols {
+		if t.style.HideEmpty && t.isEmpty[col] {
+			continue
+		}
+		cell := t.cellStyle(row, col).render(cell, t.widths[col])
 		if len(cell) > maxLines {
 			maxLines = len(cell)
 		}
@@ -189,19 +162,22 @@ func (t *table) renderColumn(b *strings.Builder, row int, col []string) {
 	}
 
 	for i := range maxLines {
+		b.WriteString(strings.Repeat(" ", t.style.OuterPadding))
 		for col, cell := range cells {
+			if t.style.HideEmpty && t.isEmpty[col] {
+				continue
+			}
 			if i < len(cell) {
-				style := t.cellStyle(row, col)
-				b.WriteString(style.Sprint(cell[i]))
+				b.WriteString(cell[i])
 			} else {
 				b.WriteString(strings.Repeat(" ", t.widths[col]))
 			}
 
-			// TODO: more style
 			if col < len(cells)-1 {
-				b.WriteString(strings.Repeat(" ", t.intraPadding))
+				b.WriteString(strings.Repeat(" ", t.style.InnerPadding))
 			}
 		}
+		b.WriteString(strings.Repeat(" ", t.style.OuterPadding))
 		b.WriteByte('\n')
 	}
 }
@@ -214,25 +190,43 @@ func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
 	return
 }
 
-func (t *table) measureTable() (minWidths []int, maxWidths []int) {
+func (t *table) measureTable() (headerWidths, minWidths, maxWidths []int) {
+	headerWidths = make([]int, 0, len(t.header))
 	minWidths = make([]int, 0, len(t.header))
 	maxWidths = make([]int, 0, len(t.header))
 
 	for col, h := range t.header {
-		minWidth := text.StringWidth(h)
+		headerWidth := text.StringWidth(h)
+		minWidth := headerWidth
 		maxWidth := minWidth
+		t.isEmpty[col] = true
+		isWrap := t.style.WrapText
 
-		for _, row := range t.rows {
-			mini, ideal := t.measureCell(row[col])
+		for i, row := range t.rows {
+			minCellWidth, maxCellWidth := t.measureCell(row[col])
 
-			if mini > minWidth {
-				minWidth = mini
+			if minCellWidth != 0 {
+				t.isEmpty[col] = false
 			}
-			if ideal > maxWidth {
-				maxWidth = ideal
+
+			s := t.cellStyle(i, col)
+			if !*s.WrapText {
+				isWrap = false
+			}
+
+			if minCellWidth > minWidth {
+				minWidth = minCellWidth
+			}
+			if maxCellWidth > maxWidth {
+				maxWidth = maxCellWidth
 			}
 		}
 
+		if !isWrap {
+			minWidth = maxWidth
+		}
+
+		headerWidths = append(headerWidths, headerWidth)
 		minWidths = append(minWidths, minWidth)
 		maxWidths = append(maxWidths, maxWidth)
 	}
@@ -240,54 +234,134 @@ func (t *table) measureTable() (minWidths []int, maxWidths []int) {
 	return
 }
 
+func (t *table) sumWidths(widths []int) int {
+	var sum int
+	for i, w := range widths {
+		if t.style.HideEmpty && t.isEmpty[i] {
+			continue
+		}
+		sum += w
+	}
+	return sum
+}
+
+func (t *table) extraWidth() int {
+	cols := 0
+	for i := range t.header {
+		if t.style.HideEmpty && t.isEmpty[i] {
+			continue
+		}
+		cols++
+	}
+
+	return t.style.OuterPadding*2 + t.style.InnerPadding*(cols-1)
+}
+
+func (t *table) expandWidths(widths, maxWidths []int, extra int) []int {
+	type width struct {
+		idx int
+		val int
+	}
+	ws := []width{}
+	for i := range len(widths) {
+		ws = append(ws, width{i, maxWidths[i] - widths[i]})
+	}
+
+	slices.SortFunc(ws, func(a, b width) int {
+		return a.val - b.val
+	})
+
+	for i := 0; i < extra; {
+		for _, w := range ws {
+			if t.style.HideEmpty && t.isEmpty[w.idx] {
+				continue
+			}
+			if widths[w.idx] == maxWidths[w.idx] {
+				continue
+			}
+
+			widths[w.idx]++
+			i++
+		}
+	}
+
+	return widths
+}
+
+func (t *table) shrinkWidths(widths, minWidths []int, extra int) []int {
+	type width struct {
+		idx int
+		val int
+	}
+	ws := []width{}
+	for i := range len(widths) {
+		ws = append(ws, width{i, widths[i] - minWidths[i]})
+	}
+
+	slices.SortFunc(ws, func(a, b width) int {
+		return b.val - a.val
+	})
+
+	for _, w := range ws {
+		if t.style.HideEmpty && t.isEmpty[w.idx] {
+			continue
+		}
+		if widths[w.idx] == minWidths[w.idx] {
+			continue
+		}
+
+		if w.val >= extra {
+			widths[w.idx] -= extra
+			break
+		} else if w.val >= extra/2 {
+			widths[w.idx] -= extra / 2
+			extra -= extra / 2
+		}
+	}
+
+	return widths
+}
+
 func longestLine(s string) int {
-	longest := 0
-	length := 0
+	maxLength := 0
+	curLength := 0
 
 	for _, r := range s {
 		if r == '\n' {
-			if length > longest {
-				longest = length
+			if curLength > maxLength {
+				maxLength = curLength
 			}
-			length = 0
+			curLength = 0
 		} else {
-			length += text.RuneWidth(r)
+			curLength += text.RuneWidth(r)
 		}
 	}
 
-	if length > longest {
-		longest = length
+	if curLength > maxLength {
+		maxLength = curLength
 	}
 
-	return longest
+	return maxLength
 }
 
 func longestWord(s string) int {
-	longest := 0
-	length := 0
+	maxLength := 0
+	curLength := 0
 
 	for _, r := range s {
 		if unicode.IsSpace(r) {
-			if length > longest {
-				longest = length
+			if curLength > maxLength {
+				maxLength = curLength
 			}
-			length = 0
+			curLength = 0
 		} else {
-			length += text.RuneWidth(r)
+			curLength += text.RuneWidth(r)
 		}
 	}
 
-	if length > longest {
-		longest = length
+	if curLength > maxLength {
+		maxLength = curLength
 	}
 
-	return longest
-}
-
-func sum(slice []int) int {
-	var sum int
-	for _, s := range slice {
-		sum += s
-	}
-	return sum
+	return maxLength
 }
