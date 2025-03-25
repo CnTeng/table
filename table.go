@@ -129,21 +129,17 @@ func (t *table) autoResize(headerWidths, minWidths, maxWidths []int) {
 	minSum := t.sumWidths(minWidths)
 	maxSum := t.sumWidths(maxWidths)
 
-	if t.width-t.extraWidth()-maxSum >= 0 {
+	width := t.width - t.extraWidth()
+	if width >= maxSum {
 		t.widths = maxWidths
 		return
 	}
 
-	overage := t.width - t.extraWidth() - minSum
-	if overage == 0 {
-		t.widths = minWidths
-		return
-	} else if overage > 0 {
-		t.widths = t.expandWidths(minWidths, maxWidths, overage)
-		return
+	t.widths = minWidths
+	if width >= minSum {
+		t.expandWidths(maxWidths, width-minSum)
 	} else {
-		t.widths = t.shrinkWidths(minWidths, headerWidths, -overage)
-		return
+		t.shrinkWidths(headerWidths, minSum-width)
 	}
 }
 
@@ -151,9 +147,6 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 	cells := make([][]string, 0, len(cols))
 	maxLines := 0
 	for col, cell := range cols {
-		if t.style.HideEmpty && t.isEmpty[col] {
-			continue
-		}
 		cell := t.cellStyle(row, col).render(cell, t.widths[col])
 		if len(cell) > maxLines {
 			maxLines = len(cell)
@@ -257,69 +250,57 @@ func (t *table) extraWidth() int {
 	return t.style.OuterPadding*2 + t.style.InnerPadding*(cols-1)
 }
 
-func (t *table) expandWidths(widths, maxWidths []int, extra int) []int {
-	type width struct {
-		idx int
-		val int
-	}
-	ws := []width{}
-	for i := range len(widths) {
-		ws = append(ws, width{i, maxWidths[i] - widths[i]})
-	}
-
-	slices.SortFunc(ws, func(a, b width) int {
-		return a.val - b.val
-	})
-
-	for i := 0; i < extra; {
-		for _, w := range ws {
-			if t.style.HideEmpty && t.isEmpty[w.idx] {
-				continue
-			}
-			if widths[w.idx] == maxWidths[w.idx] {
-				continue
-			}
-
-			widths[w.idx]++
-			i++
-		}
-	}
-
-	return widths
+type widthDiff struct {
+	idx  int
+	diff int
 }
 
-func (t *table) shrinkWidths(widths, minWidths []int, extra int) []int {
-	type width struct {
-		idx int
-		val int
-	}
-	ws := []width{}
-	for i := range len(widths) {
-		ws = append(ws, width{i, widths[i] - minWidths[i]})
+func (t *table) expandWidths(maxWidths []int, extra int) {
+	ws := []*widthDiff{}
+	for i, w := range t.widths {
+		ws = append(ws, &widthDiff{idx: i, diff: maxWidths[i] - w})
 	}
 
-	slices.SortFunc(ws, func(a, b width) int {
-		return b.val - a.val
+	slices.SortFunc(ws, func(a, b *widthDiff) int {
+		return a.diff - b.diff
 	})
 
 	for _, w := range ws {
 		if t.style.HideEmpty && t.isEmpty[w.idx] {
 			continue
 		}
-		if widths[w.idx] == minWidths[w.idx] {
+
+		expended := min(w.diff, extra)
+		t.widths[w.idx] += expended
+		extra -= expended
+		if extra == 0 {
+			return
+		}
+	}
+}
+
+func (t *table) shrinkWidths(minWidths []int, extra int) {
+	ws := []*widthDiff{}
+	for i, w := range t.widths {
+		ws = append(ws, &widthDiff{idx: i, diff: w - minWidths[i]})
+	}
+
+	slices.SortFunc(ws, func(a, b *widthDiff) int {
+		return b.diff - a.diff
+	})
+
+	for _, w := range ws {
+		if t.style.HideEmpty && t.isEmpty[w.idx] {
 			continue
 		}
 
-		if w.val >= extra {
-			widths[w.idx] -= extra
-			break
-		} else if w.val >= extra/2 {
-			widths[w.idx] -= extra / 2
-			extra -= extra / 2
+		shrinked := min(w.diff, extra)
+		t.widths[w.idx] -= shrinked
+		extra -= shrinked
+		if extra == 0 {
+			return
 		}
 	}
-
-	return widths
 }
 
 func longestLine(s string) int {
