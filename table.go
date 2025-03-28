@@ -14,6 +14,7 @@ import (
 type Table interface {
 	AddHeader(header ...string)
 	AddRow(vals ...any)
+	AddRows(rows ...[]any)
 
 	SetStyle(style *TableStyle)
 	SetHeaderStyle(style *CellStyle)
@@ -83,6 +84,12 @@ func (t *table) AddRow(vals ...any) {
 	t.rows = append(t.rows, row)
 }
 
+func (t *table) AddRows(rows ...[]any) {
+	for _, row := range rows {
+		t.AddRow(row...)
+	}
+}
+
 func (t *table) SetHeaderStyle(style *CellStyle) {
 	t.rowStyle[headerRow] = style
 }
@@ -96,18 +103,18 @@ func (t *table) SetColStyle(col int, style *CellStyle) {
 }
 
 func (t *table) Render() string {
-	var b strings.Builder
+	b := &strings.Builder{}
 
 	headerWidths, minWidths, maxWidths := t.measureTable()
 
 	t.autoResize(headerWidths, minWidths, maxWidths)
 
 	// render header
-	t.renderColumn(&b, headerRow, t.header)
+	t.renderColumn(b, headerRow, t.header)
 
 	// render rows
 	for i, row := range t.rows {
-		t.renderColumn(&b, i, row)
+		t.renderColumn(b, i, row)
 	}
 
 	return b.String()
