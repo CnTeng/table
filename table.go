@@ -3,7 +3,6 @@ package table
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -35,12 +34,11 @@ type table struct {
 	rows   [][]string
 
 	// Attributes of the table
-	width        int
-	widths       []int
-	notEmptyCols int
-	isEmpty      map[int]bool
-	rowStyle     map[int]*CellStyle
-	colStyle     map[int]*CellStyle
+	width    int
+	widths   widths
+	isEmpty  map[int]bool
+	rowStyle map[int]*CellStyle
+	colStyle map[int]*CellStyle
 }
 
 func NewTable() Table {
@@ -107,15 +105,7 @@ func (t *table) Render() string {
 	b := &strings.Builder{}
 
 	headerWidths, minWidths, maxWidths := t.measureTable()
-
-	cols := 0
-	for _, isEmpty := range t.isEmpty {
-		if t.style.HideEmpty && isEmpty {
-			continue
-		}
-		cols++
-	}
-	t.notEmptyCols = cols
+	t.hideColumns()
 
 	t.autoResize(headerWidths, minWidths, maxWidths)
 
@@ -142,9 +132,9 @@ func (t *table) cellStyle(row, col int) *CellStyle {
 	return s
 }
 
-func (t *table) autoResize(headerWidths, minWidths, maxWidths []int) {
-	minSum := t.sumWidths(minWidths)
-	maxSum := t.sumWidths(maxWidths)
+func (t *table) autoResize(headerWidths, minWidths, maxWidths widths) {
+	minSum := minWidths.sum()
+	maxSum := maxWidths.sum()
 
 	width := t.width - t.extraWidth()
 	if width >= maxSum {
@@ -154,9 +144,9 @@ func (t *table) autoResize(headerWidths, minWidths, maxWidths []int) {
 
 	t.widths = minWidths
 	if width >= minSum {
-		t.expandWidths(maxWidths, width-minSum)
+		t.widths.expand(maxWidths, width-minSum)
 	} else {
-		t.shrinkWidths(headerWidths, minSum-width)
+		t.widths.shrink(headerWidths, minSum-width)
 	}
 }
 
@@ -183,7 +173,7 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 				b.WriteString(strings.Repeat(" ", t.widths[col]))
 			}
 
-			if col < t.notEmptyCols-1 {
+			if col < len(cells)-1 {
 				b.WriteString(strings.Repeat(" ", t.style.InnerPadding))
 			}
 		}
@@ -200,10 +190,10 @@ func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
 	return
 }
 
-func (t *table) measureTable() (headerWidths, minWidths, maxWidths []int) {
-	headerWidths = make([]int, 0, len(t.header))
-	minWidths = make([]int, 0, len(t.header))
-	maxWidths = make([]int, 0, len(t.header))
+func (t *table) measureTable() (headerWidths, minWidths, maxWidths widths) {
+	headerWidths = make(widths, 0, len(t.header))
+	minWidths = make(widths, 0, len(t.header))
+	maxWidths = make(widths, 0, len(t.header))
 
 	for col, h := range t.header {
 		headerWidth := text.StringWidth(h)
@@ -244,72 +234,30 @@ func (t *table) measureTable() (headerWidths, minWidths, maxWidths []int) {
 	return
 }
 
-func (t *table) sumWidths(widths []int) int {
-	var sum int
-	for i, w := range widths {
-		if t.style.HideEmpty && t.isEmpty[i] {
-			continue
-		}
-		sum += w
+func (t *table) hideColumns() {
+	if !t.style.HideEmpty {
+		return
 	}
-	return sum
+
+	hideColumnsInRow := func(row []string) []string {
+		newRow := []string{}
+		for colIdx, cell := range row {
+			if t.isEmpty[colIdx] {
+				continue
+			}
+			newRow = append(newRow, cell)
+		}
+		return newRow
+	}
+
+	t.header = hideColumnsInRow(t.header)
+	for i, row := range t.rows {
+		t.rows[i] = hideColumnsInRow(row)
+	}
 }
 
 func (t *table) extraWidth() int {
-	return t.style.OuterPadding*2 + t.style.InnerPadding*(t.notEmptyCols-1)
-}
-
-type widthDiff struct {
-	idx  int
-	diff int
-}
-
-func (t *table) expandWidths(maxWidths []int, extra int) {
-	ws := []*widthDiff{}
-	for i, w := range t.widths {
-		ws = append(ws, &widthDiff{idx: i, diff: maxWidths[i] - w})
-	}
-
-	slices.SortFunc(ws, func(a, b *widthDiff) int {
-		return a.diff - b.diff
-	})
-
-	for _, w := range ws {
-		if t.style.HideEmpty && t.isEmpty[w.idx] {
-			continue
-		}
-
-		expended := min(w.diff, extra)
-		t.widths[w.idx] += expended
-		extra -= expended
-		if extra == 0 {
-			return
-		}
-	}
-}
-
-func (t *table) shrinkWidths(minWidths []int, extra int) {
-	ws := []*widthDiff{}
-	for i, w := range t.widths {
-		ws = append(ws, &widthDiff{idx: i, diff: w - minWidths[i]})
-	}
-
-	slices.SortFunc(ws, func(a, b *widthDiff) int {
-		return b.diff - a.diff
-	})
-
-	for _, w := range ws {
-		if t.style.HideEmpty && t.isEmpty[w.idx] {
-			continue
-		}
-
-		shrinked := min(w.diff, extra)
-		t.widths[w.idx] -= shrinked
-		extra -= shrinked
-		if extra == 0 {
-			return
-		}
-	}
+	return t.style.OuterPadding*2 + t.style.InnerPadding*(len(t.rows[0])-1)
 }
 
 func longestLine(s string) int {
