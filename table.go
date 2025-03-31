@@ -36,7 +36,6 @@ type table struct {
 	// Attributes of the table
 	width    int
 	widths   widths
-	isEmpty  map[int]bool
 	rowStyle map[int]*CellStyle
 	colStyle map[int]*CellStyle
 }
@@ -56,7 +55,6 @@ func NewTableWithStyle(style *TableStyle) Table {
 	return &table{
 		style:    style,
 		width:    width,
-		isEmpty:  make(map[int]bool),
 		rowStyle: make(map[int]*CellStyle),
 		colStyle: make(map[int]*CellStyle),
 	}
