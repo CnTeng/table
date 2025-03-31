@@ -35,11 +35,12 @@ type table struct {
 	rows   [][]string
 
 	// Attributes of the table
-	width    int
-	widths   []int
-	isEmpty  map[int]bool
-	rowStyle map[int]*CellStyle
-	colStyle map[int]*CellStyle
+	width        int
+	widths       []int
+	notEmptyCols int
+	isEmpty      map[int]bool
+	rowStyle     map[int]*CellStyle
+	colStyle     map[int]*CellStyle
 }
 
 func NewTable() Table {
@@ -107,6 +108,15 @@ func (t *table) Render() string {
 
 	headerWidths, minWidths, maxWidths := t.measureTable()
 
+	cols := 0
+	for _, isEmpty := range t.isEmpty {
+		if t.style.HideEmpty && isEmpty {
+			continue
+		}
+		cols++
+	}
+	t.notEmptyCols = cols
+
 	t.autoResize(headerWidths, minWidths, maxWidths)
 
 	// render header
@@ -173,7 +183,7 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 				b.WriteString(strings.Repeat(" ", t.widths[col]))
 			}
 
-			if col < len(cells)-1 {
+			if col < t.notEmptyCols-1 {
 				b.WriteString(strings.Repeat(" ", t.style.InnerPadding))
 			}
 		}
@@ -246,15 +256,7 @@ func (t *table) sumWidths(widths []int) int {
 }
 
 func (t *table) extraWidth() int {
-	cols := 0
-	for i := range t.header {
-		if t.style.HideEmpty && t.isEmpty[i] {
-			continue
-		}
-		cols++
-	}
-
-	return t.style.OuterPadding*2 + t.style.InnerPadding*(cols-1)
+	return t.style.OuterPadding*2 + t.style.InnerPadding*(t.notEmptyCols-1)
 }
 
 type widthDiff struct {
