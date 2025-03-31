@@ -26,7 +26,7 @@ type TableStyle struct {
 var defaultTableStyle = &TableStyle{
 	DefaultWidth:  80,
 	FitToTerminal: true,
-	WrapText:      true,
+	WrapText:      false,
 	HideEmpty:     true,
 	OuterPadding:  0,
 	InnerPadding:  1,
