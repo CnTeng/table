@@ -104,9 +104,8 @@ func (t *table) SetColStyle(col int, style *CellStyle) {
 func (t *table) Render() string {
 	b := &strings.Builder{}
 
-	headerWidths, minWidths, maxWidths := t.measureTable()
-	t.hideColumns()
-
+	headerWidths, minWidths, maxWidths, emptyMap := t.measureTable()
+	t.hideColumns(emptyMap)
 	t.autoResize(headerWidths, minWidths, maxWidths)
 
 	// render header
@@ -120,23 +119,51 @@ func (t *table) Render() string {
 	return b.String()
 }
 
-func (t *table) cellStyle(row, col int) *CellStyle {
-	s := &CellStyle{WrapText: &t.style.WrapText}
+func (t *table) hideColumns(emptyMap map[int]bool) {
+	if !t.style.HideEmpty {
+		return
+	}
+	colIdxMap := t.dropEmptyColumns(emptyMap)
+	t.remapColStyle(colIdxMap)
+}
 
-	if row == headerRow {
-		return s.merge(t.rowStyle[headerRow])
+func (t *table) dropEmptyColumns(emptyMap map[int]bool) map[int]int {
+	colIdxMap := make(map[int]int)
+	hideColumnsInRow := func(row []string) []string {
+		newRow := []string{}
+		for colIdx, cell := range row {
+			if emptyMap[colIdx] {
+				continue
+			}
+			newRow = append(newRow, cell)
+			colIdxMap[colIdx] = len(newRow) - 1
+		}
+		return newRow
 	}
 
-	s.merge(t.rowStyle[row])
-	s.merge(t.colStyle[col])
-	return s
+	t.header = hideColumnsInRow(t.header)
+	for i, row := range t.rows {
+		t.rows[i] = hideColumnsInRow(row)
+	}
+
+	return colIdxMap
+}
+
+func (t *table) remapColStyle(colIdxMap map[int]int) {
+	newColStyle := make(map[int]*CellStyle)
+	for colIdx, style := range t.colStyle {
+		if newColIdx, ok := colIdxMap[colIdx]; ok {
+			newColStyle[newColIdx] = style
+		}
+	}
+	t.colStyle = newColStyle
 }
 
 func (t *table) autoResize(headerWidths, minWidths, maxWidths widths) {
 	minSum := minWidths.sum()
 	maxSum := maxWidths.sum()
 
-	width := t.width - t.extraWidth()
+	width := t.width - t.style.OuterPadding*2 + t.style.InnerPadding*(len(t.header)-1)
 	if width >= maxSum {
 		t.widths = maxWidths
 		return
@@ -148,6 +175,18 @@ func (t *table) autoResize(headerWidths, minWidths, maxWidths widths) {
 	} else {
 		t.widths.shrink(headerWidths, minSum-width)
 	}
+}
+
+func (t *table) cellStyle(row, col int) *CellStyle {
+	s := &CellStyle{WrapText: &t.style.WrapText}
+
+	if row == headerRow {
+		return s.merge(t.rowStyle[headerRow])
+	}
+
+	s.merge(t.rowStyle[row])
+	s.merge(t.colStyle[col])
+	return s
 }
 
 func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
@@ -164,9 +203,6 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 	for i := range maxLines {
 		b.WriteString(strings.Repeat(" ", t.style.OuterPadding))
 		for col, cell := range cells {
-			if t.style.HideEmpty && t.isEmpty[col] {
-				continue
-			}
 			if i < len(cell) {
 				b.WriteString(cell[i])
 			} else {
@@ -190,23 +226,24 @@ func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
 	return
 }
 
-func (t *table) measureTable() (headerWidths, minWidths, maxWidths widths) {
+func (t *table) measureTable() (headerWidths, minWidths, maxWidths widths, emptyMap map[int]bool) {
 	headerWidths = make(widths, 0, len(t.header))
 	minWidths = make(widths, 0, len(t.header))
 	maxWidths = make(widths, 0, len(t.header))
+	emptyMap = make(map[int]bool, len(t.header))
 
 	for col, h := range t.header {
 		headerWidth := text.StringWidth(h)
 		minWidth := headerWidth
 		maxWidth := minWidth
-		t.isEmpty[col] = true
+		emptyMap[col] = true
 		isWrap := t.style.WrapText
 
 		for i, row := range t.rows {
 			minCellWidth, maxCellWidth := t.measureCell(row[col])
 
 			if minCellWidth != 0 {
-				t.isEmpty[col] = false
+				emptyMap[col] = false
 			}
 
 			s := t.cellStyle(i, col)
@@ -232,32 +269,6 @@ func (t *table) measureTable() (headerWidths, minWidths, maxWidths widths) {
 	}
 
 	return
-}
-
-func (t *table) hideColumns() {
-	if !t.style.HideEmpty {
-		return
-	}
-
-	hideColumnsInRow := func(row []string) []string {
-		newRow := []string{}
-		for colIdx, cell := range row {
-			if t.isEmpty[colIdx] {
-				continue
-			}
-			newRow = append(newRow, cell)
-		}
-		return newRow
-	}
-
-	t.header = hideColumnsInRow(t.header)
-	for i, row := range t.rows {
-		t.rows[i] = hideColumnsInRow(row)
-	}
-}
-
-func (t *table) extraWidth() int {
-	return t.style.OuterPadding*2 + t.style.InnerPadding*(len(t.rows[0])-1)
 }
 
 func longestLine(s string) int {
