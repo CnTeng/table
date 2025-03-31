@@ -70,13 +70,13 @@ func (cs *CellStyle) merge(other *CellStyle) *CellStyle {
 	return cs
 }
 
-func (cs *CellStyle) render(s string, width int) []string {
+func (cs *CellStyle) render(cell string, width int) []string {
 	if *cs.WrapText {
-		s = text.WrapSoft(s, width)
+		cell = text.WrapSoft(cell, width)
 	}
 
 	lines := make([]string, 0)
-	for line := range strings.SplitSeq(s, "\n") {
+	for line := range strings.SplitSeq(cell, "\n") {
 		line = cs.TextAttrs.Sprint(line)
 		line = cs.Align.Apply(line, width)
 		line = cs.CellAttrs.Sprint(line)

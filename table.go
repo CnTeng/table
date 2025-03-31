@@ -3,7 +3,6 @@ package table
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -35,12 +34,11 @@ type table struct {
 	rows   [][]string
 
 	// Attributes of the table
-	width        int
-	widths       []int
-	notEmptyCols int
-	isEmpty      map[int]bool
-	rowStyle     map[int]*CellStyle
-	colStyle     map[int]*CellStyle
+	width    int
+	widths   widths
+	isEmpty  map[int]bool
+	rowStyle map[int]*CellStyle
+	colStyle map[int]*CellStyle
 }
 
 func NewTable() Table {
@@ -106,17 +104,8 @@ func (t *table) SetColStyle(col int, style *CellStyle) {
 func (t *table) Render() string {
 	b := &strings.Builder{}
 
-	headerWidths, minWidths, maxWidths := t.measureTable()
-
-	cols := 0
-	for _, isEmpty := range t.isEmpty {
-		if t.style.HideEmpty && isEmpty {
-			continue
-		}
-		cols++
-	}
-	t.notEmptyCols = cols
-
+	headerWidths, minWidths, maxWidths, emptyMap := t.measureTable()
+	t.hideColumns(emptyMap)
 	t.autoResize(headerWidths, minWidths, maxWidths)
 
 	// render header
@@ -130,6 +119,64 @@ func (t *table) Render() string {
 	return b.String()
 }
 
+func (t *table) hideColumns(emptyMap map[int]bool) {
+	if !t.style.HideEmpty {
+		return
+	}
+	colIdxMap := t.dropEmptyColumns(emptyMap)
+	t.remapColStyle(colIdxMap)
+}
+
+func (t *table) dropEmptyColumns(emptyMap map[int]bool) map[int]int {
+	colIdxMap := make(map[int]int)
+	hideColumnsInRow := func(row []string) []string {
+		newRow := []string{}
+		for colIdx, cell := range row {
+			if emptyMap[colIdx] {
+				continue
+			}
+			newRow = append(newRow, cell)
+			colIdxMap[colIdx] = len(newRow) - 1
+		}
+		return newRow
+	}
+
+	t.header = hideColumnsInRow(t.header)
+	for i, row := range t.rows {
+		t.rows[i] = hideColumnsInRow(row)
+	}
+
+	return colIdxMap
+}
+
+func (t *table) remapColStyle(colIdxMap map[int]int) {
+	newColStyle := make(map[int]*CellStyle)
+	for colIdx, style := range t.colStyle {
+		if newColIdx, ok := colIdxMap[colIdx]; ok {
+			newColStyle[newColIdx] = style
+		}
+	}
+	t.colStyle = newColStyle
+}
+
+func (t *table) autoResize(headerWidths, minWidths, maxWidths widths) {
+	minSum := minWidths.sum()
+	maxSum := maxWidths.sum()
+
+	width := t.width - t.style.OuterPadding*2 + t.style.InnerPadding*(len(t.header)-1)
+	if width >= maxSum {
+		t.widths = maxWidths
+		return
+	}
+
+	t.widths = minWidths
+	if width >= minSum {
+		t.widths.expand(maxWidths, width-minSum)
+	} else {
+		t.widths.shrink(headerWidths, minSum-width)
+	}
+}
+
 func (t *table) cellStyle(row, col int) *CellStyle {
 	s := &CellStyle{WrapText: &t.style.WrapText}
 
@@ -140,24 +187,6 @@ func (t *table) cellStyle(row, col int) *CellStyle {
 	s.merge(t.rowStyle[row])
 	s.merge(t.colStyle[col])
 	return s
-}
-
-func (t *table) autoResize(headerWidths, minWidths, maxWidths []int) {
-	minSum := t.sumWidths(minWidths)
-	maxSum := t.sumWidths(maxWidths)
-
-	width := t.width - t.extraWidth()
-	if width >= maxSum {
-		t.widths = maxWidths
-		return
-	}
-
-	t.widths = minWidths
-	if width >= minSum {
-		t.expandWidths(maxWidths, width-minSum)
-	} else {
-		t.shrinkWidths(headerWidths, minSum-width)
-	}
 }
 
 func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
@@ -174,16 +203,13 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 	for i := range maxLines {
 		b.WriteString(strings.Repeat(" ", t.style.OuterPadding))
 		for col, cell := range cells {
-			if t.style.HideEmpty && t.isEmpty[col] {
-				continue
-			}
 			if i < len(cell) {
 				b.WriteString(cell[i])
 			} else {
 				b.WriteString(strings.Repeat(" ", t.widths[col]))
 			}
 
-			if col < t.notEmptyCols-1 {
+			if col < len(cells)-1 {
 				b.WriteString(strings.Repeat(" ", t.style.InnerPadding))
 			}
 		}
@@ -200,23 +226,24 @@ func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
 	return
 }
 
-func (t *table) measureTable() (headerWidths, minWidths, maxWidths []int) {
-	headerWidths = make([]int, 0, len(t.header))
-	minWidths = make([]int, 0, len(t.header))
-	maxWidths = make([]int, 0, len(t.header))
+func (t *table) measureTable() (headerWidths, minWidths, maxWidths widths, emptyMap map[int]bool) {
+	headerWidths = make(widths, 0, len(t.header))
+	minWidths = make(widths, 0, len(t.header))
+	maxWidths = make(widths, 0, len(t.header))
+	emptyMap = make(map[int]bool, len(t.header))
 
 	for col, h := range t.header {
 		headerWidth := text.StringWidth(h)
 		minWidth := headerWidth
 		maxWidth := minWidth
-		t.isEmpty[col] = true
+		emptyMap[col] = true
 		isWrap := t.style.WrapText
 
 		for i, row := range t.rows {
 			minCellWidth, maxCellWidth := t.measureCell(row[col])
 
 			if minCellWidth != 0 {
-				t.isEmpty[col] = false
+				emptyMap[col] = false
 			}
 
 			s := t.cellStyle(i, col)
@@ -242,74 +269,6 @@ func (t *table) measureTable() (headerWidths, minWidths, maxWidths []int) {
 	}
 
 	return
-}
-
-func (t *table) sumWidths(widths []int) int {
-	var sum int
-	for i, w := range widths {
-		if t.style.HideEmpty && t.isEmpty[i] {
-			continue
-		}
-		sum += w
-	}
-	return sum
-}
-
-func (t *table) extraWidth() int {
-	return t.style.OuterPadding*2 + t.style.InnerPadding*(t.notEmptyCols-1)
-}
-
-type widthDiff struct {
-	idx  int
-	diff int
-}
-
-func (t *table) expandWidths(maxWidths []int, extra int) {
-	ws := []*widthDiff{}
-	for i, w := range t.widths {
-		ws = append(ws, &widthDiff{idx: i, diff: maxWidths[i] - w})
-	}
-
-	slices.SortFunc(ws, func(a, b *widthDiff) int {
-		return a.diff - b.diff
-	})
-
-	for _, w := range ws {
-		if t.style.HideEmpty && t.isEmpty[w.idx] {
-			continue
-		}
-
-		expended := min(w.diff, extra)
-		t.widths[w.idx] += expended
-		extra -= expended
-		if extra == 0 {
-			return
-		}
-	}
-}
-
-func (t *table) shrinkWidths(minWidths []int, extra int) {
-	ws := []*widthDiff{}
-	for i, w := range t.widths {
-		ws = append(ws, &widthDiff{idx: i, diff: w - minWidths[i]})
-	}
-
-	slices.SortFunc(ws, func(a, b *widthDiff) int {
-		return b.diff - a.diff
-	})
-
-	for _, w := range ws {
-		if t.style.HideEmpty && t.isEmpty[w.idx] {
-			continue
-		}
-
-		shrinked := min(w.diff, extra)
-		t.widths[w.idx] -= shrinked
-		extra -= shrinked
-		if extra == 0 {
-			return
-		}
-	}
 }
 
 func longestLine(s string) int {
