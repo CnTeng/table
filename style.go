@@ -1,11 +1,5 @@
 package table
 
-import (
-	"strings"
-
-	"github.com/jedib0t/go-pretty/v6/text"
-)
-
 type TableStyle struct {
 	// DefaultWidth defines the default width of the table.
 	DefaultWidth int
@@ -30,76 +24,4 @@ var defaultTableStyle = &TableStyle{
 	HideEmpty:     true,
 	OuterPadding:  0,
 	InnerPadding:  1,
-}
-
-func BoolPtr(b bool) *bool { return &b }
-
-// CellStyle is the style of a cell in the table
-type CellStyle struct {
-	// Align defines the alignment of the text.
-	Align text.Align
-
-	// WrapText defines if the text should be wrapped.
-	WrapText *bool
-
-	// TextAttrs defines the text attributes.
-	TextAttrs text.Colors
-
-	// CellAttrs defines the cell attributes.
-	CellAttrs text.Colors
-}
-
-func (cs *CellStyle) merge(other *CellStyle) *CellStyle {
-	if other == nil {
-		return cs
-	}
-
-	if cs == nil {
-		return other
-	}
-
-	cs.Align = other.Align
-	if other.WrapText != nil {
-		cs.WrapText = other.WrapText
-	}
-	cs.TextAttrs = append(cs.TextAttrs, other.TextAttrs...)
-	cs.CellAttrs = append(cs.CellAttrs, other.CellAttrs...)
-	removeDuplicates(cs.TextAttrs)
-	removeDuplicates(cs.CellAttrs)
-
-	return cs
-}
-
-func (cs *CellStyle) render(cell string, width int) []string {
-	if *cs.WrapText {
-		cell = text.WrapSoft(cell, width)
-	}
-
-	lines := make([]string, 0)
-	for line := range strings.SplitSeq(cell, "\n") {
-		line = cs.TextAttrs.Sprint(line)
-		line = cs.Align.Apply(line, width)
-		line = cs.CellAttrs.Sprint(line)
-
-		lines = append(lines, line)
-	}
-
-	return lines
-}
-
-func removeDuplicates[S ~[]E, E comparable](s S) S {
-	if len(s) == 0 {
-		return s
-	}
-
-	seen := make(map[E]any)
-	result := S{}
-
-	for _, v := range s {
-		if _, ok := seen[v]; !ok {
-			seen[v] = struct{}{}
-			result = append(result, v)
-		}
-	}
-	return result
 }

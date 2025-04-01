@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"unicode"
 
 	"github.com/jedib0t/go-pretty/v6/text"
 	"golang.org/x/term"
@@ -12,8 +11,10 @@ import (
 
 type Table interface {
 	AddHeader(header ...string)
-	AddRow(vals ...any)
-	AddRows(rows ...[]any)
+	AddRow(row Row)
+	AddRows(rows []Row)
+
+	Length() int
 
 	SetStyle(style *TableStyle)
 	SetHeaderStyle(style *CellStyle)
@@ -25,13 +26,15 @@ type Table interface {
 
 const headerRow = -1
 
+type Row []any
+
 type table struct {
 	// Style of the table
 	style *TableStyle
 
 	// Data of the table
-	header []string
-	rows   [][]string
+	header row
+	rows   []row
 
 	// Row and column styles
 	rowStyle map[int]*CellStyle
@@ -70,26 +73,36 @@ func (t *table) SetStyle(style *TableStyle) {
 }
 
 func (t *table) AddHeader(header ...string) {
-	t.header = header
+	for _, h := range header {
+		t.header = append(t.header, Cell{Content: h})
+	}
 }
 
-func (t *table) AddRow(vals ...any) {
-	row := make([]string, 0, len(vals))
-	for _, v := range vals {
+func (t *table) AddRow(r Row) {
+	row := make(row, 0, len(r))
+	for _, v := range r {
 		switch v := v.(type) {
-		case string:
+		case *Cell:
+			row = append(row, *v)
+		case Cell:
 			row = append(row, v)
+		case string:
+			row = append(row, Cell{Content: v})
 		default:
-			row = append(row, fmt.Sprint(v))
+			row = append(row, Cell{Content: fmt.Sprint(v)})
 		}
 	}
 	t.rows = append(t.rows, row)
 }
 
-func (t *table) AddRows(rows ...[]any) {
+func (t *table) AddRows(rows []Row) {
 	for _, row := range rows {
-		t.AddRow(row...)
+		t.AddRow(row)
 	}
+}
+
+func (t *table) Length() int {
+	return len(t.rows)
 }
 
 func (t *table) SetHeaderStyle(style *CellStyle) {
@@ -107,27 +120,20 @@ func (t *table) SetColStyle(col int, style *CellStyle) {
 func (t *table) Render() string {
 	b := &strings.Builder{}
 
+	t.setCellStyle()
 	emptyMap := t.measureTable()
 	t.hideColumns(emptyMap)
 	t.autoResize()
 
 	// render header
-	t.renderColumn(b, headerRow, t.header)
+	t.renderRow(b, t.header)
 
 	// render rows
-	for i, row := range t.rows {
-		t.renderColumn(b, i, row)
+	for _, row := range t.rows {
+		t.renderRow(b, row)
 	}
 
 	return b.String()
-}
-
-func (t *table) hideColumns(emptyMap map[int]bool) {
-	if !t.style.HideEmpty {
-		return
-	}
-	colIdxMap := t.dropEmptyColumns(emptyMap)
-	t.remapColStyle(colIdxMap)
 }
 
 func hideColumnsInRow[T any](row []T, emptyMap map[int]bool) []T {
@@ -141,41 +147,18 @@ func hideColumnsInRow[T any](row []T, emptyMap map[int]bool) []T {
 	return newRow
 }
 
-func (t *table) dropEmptyColumns(emptyMap map[int]bool) map[int]int {
-	colIdxMap := make(map[int]int)
-
-	hideColumnsInHeader := func(row []string) []string {
-		newRow := []string{}
-		for colIdx, cell := range row {
-			if emptyMap[colIdx] {
-				continue
-			}
-			newRow = append(newRow, cell)
-			colIdxMap[colIdx] = len(newRow) - 1
-		}
-		return newRow
+func (t *table) hideColumns(emptyMap map[int]bool) {
+	if !t.style.HideEmpty {
+		return
 	}
 
-	t.header = hideColumnsInHeader(t.header)
+	t.header = hideColumnsInRow(t.header, emptyMap)
 	for i, row := range t.rows {
 		t.rows[i] = hideColumnsInRow(row, emptyMap)
 	}
-
 	t.headerWidths = hideColumnsInRow(t.headerWidths, emptyMap)
 	t.minWidths = hideColumnsInRow(t.minWidths, emptyMap)
 	t.maxWidths = hideColumnsInRow(t.maxWidths, emptyMap)
-
-	return colIdxMap
-}
-
-func (t *table) remapColStyle(colIdxMap map[int]int) {
-	newColStyle := make(map[int]*CellStyle)
-	for colIdx, style := range t.colStyle {
-		if newColIdx, ok := colIdxMap[colIdx]; ok {
-			newColStyle[newColIdx] = style
-		}
-	}
-	t.colStyle = newColStyle
 }
 
 func (t *table) autoResize() {
@@ -196,6 +179,18 @@ func (t *table) autoResize() {
 	}
 }
 
+func (t *table) setCellStyle() {
+	for colIdx := range t.header {
+		t.header[colIdx].style = t.cellStyle(headerRow, colIdx)
+	}
+
+	for rowIdx := range t.rows {
+		for colIdx := range t.rows[rowIdx] {
+			t.rows[rowIdx][colIdx].style = t.cellStyle(rowIdx, colIdx)
+		}
+	}
+}
+
 func (t *table) cellStyle(row, col int) *CellStyle {
 	s := &CellStyle{WrapText: &t.style.WrapText}
 
@@ -205,29 +200,17 @@ func (t *table) cellStyle(row, col int) *CellStyle {
 
 	s.merge(t.rowStyle[row])
 	s.merge(t.colStyle[col])
+	s.merge(t.rows[row][col].style)
 	return s
 }
 
-func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
-	cells := make([][]string, 0, len(cols))
-	maxLines := 0
-	for col, cell := range cols {
-		cell := t.cellStyle(row, col).render(cell, t.widths[col])
-		if len(cell) > maxLines {
-			maxLines = len(cell)
-		}
-		cells = append(cells, cell)
-	}
+func (t *table) renderRow(b *strings.Builder, r row) {
+	cells, lines := r.render(t.widths)
 
-	for i := range maxLines {
+	for i := range lines {
 		b.WriteString(strings.Repeat(" ", t.style.OuterPadding))
 		for col, cell := range cells {
-			if i < len(cell) {
-				b.WriteString(cell[i])
-			} else {
-				b.WriteString(strings.Repeat(" ", t.widths[col]))
-			}
-
+			b.WriteString(cell[i])
 			if col < len(cells)-1 {
 				b.WriteString(strings.Repeat(" ", t.style.InnerPadding))
 			}
@@ -237,14 +220,6 @@ func (t *table) renderColumn(b *strings.Builder, row int, cols []string) {
 	}
 }
 
-func (t *table) measureCell(data string) (minWidth int, maxWidth int) {
-	striped := text.StripEscape(data)
-
-	minWidth = longestWord(striped)
-	maxWidth = longestLine(striped)
-	return
-}
-
 func (t *table) measureTable() (emptyMap map[int]bool) {
 	t.headerWidths = make(widths, 0, len(t.header))
 	t.minWidths = make(widths, 0, len(t.header))
@@ -252,14 +227,14 @@ func (t *table) measureTable() (emptyMap map[int]bool) {
 	emptyMap = make(map[int]bool, len(t.header))
 
 	for col, h := range t.header {
-		headerWidth := text.StringWidth(h)
+		headerWidth := text.StringWidth(h.Content)
 		minWidth := headerWidth
 		maxWidth := minWidth
 		emptyMap[col] = true
 		isWrap := t.style.WrapText
 
 		for i, row := range t.rows {
-			minCellWidth, maxCellWidth := t.measureCell(row[col])
+			minCellWidth, maxCellWidth := row[col].measure()
 
 			if minCellWidth != 0 {
 				emptyMap[col] = false
@@ -288,48 +263,4 @@ func (t *table) measureTable() (emptyMap map[int]bool) {
 	}
 
 	return
-}
-
-func longestLine(s string) int {
-	maxLength := 0
-	curLength := 0
-
-	for _, r := range s {
-		if r == '\n' {
-			if curLength > maxLength {
-				maxLength = curLength
-			}
-			curLength = 0
-		} else {
-			curLength += text.RuneWidth(r)
-		}
-	}
-
-	if curLength > maxLength {
-		maxLength = curLength
-	}
-
-	return maxLength
-}
-
-func longestWord(s string) int {
-	maxLength := 0
-	curLength := 0
-
-	for _, r := range s {
-		if unicode.IsSpace(r) {
-			if curLength > maxLength {
-				maxLength = curLength
-			}
-			curLength = 0
-		} else {
-			curLength += text.RuneWidth(r)
-		}
-	}
-
-	if curLength > maxLength {
-		maxLength = curLength
-	}
-
-	return maxLength
 }
