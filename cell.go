@@ -27,7 +27,7 @@ func (c *Cell) measure() (minWidth, maxWidth int) {
 	striped := text.StripEscape(c.Content)
 
 	minWidth = longestWord(striped)
-	maxWidth = longestLine(striped)
+	maxWidth = c.prefixLength() + longestLine(striped) + c.suffixLength()
 	return
 }
 
