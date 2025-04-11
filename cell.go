@@ -24,6 +24,7 @@ type Cell struct {
 }
 
 func (c *Cell) measure() (minWidth, maxWidth int) {
+	c.Content = renderMarkdown(c.Content)
 	striped := text.StripEscape(c.Content)
 
 	minWidth = longestWord(striped)
