@@ -192,7 +192,10 @@ func (t *table) setCellStyle() {
 }
 
 func (t *table) cellStyle(row, col int) *CellStyle {
-	s := &CellStyle{WrapText: &t.style.WrapText}
+	s := &CellStyle{
+		WrapText: &t.style.WrapText,
+		Markdown: &t.style.Markdown,
+	}
 
 	if row == headerRow {
 		return s.merge(t.rowStyle[headerRow])

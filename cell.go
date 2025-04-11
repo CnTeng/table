@@ -24,7 +24,9 @@ type Cell struct {
 }
 
 func (c *Cell) measure() (minWidth, maxWidth int) {
-	c.Content = renderMarkdown(c.Content)
+	if c.style.Markdown != nil && *c.style.Markdown {
+		c.Content = renderMarkdown(c.Content)
+	}
 	striped := text.StripEscape(c.Content)
 
 	minWidth = longestWord(striped)
@@ -60,7 +62,7 @@ func (c *Cell) render(width int) []string {
 		width -= prefixLength + suffixLength
 	}
 
-	if *c.style.WrapText {
+	if c.style.WrapText != nil && *c.style.WrapText {
 		c.Content = text.WrapSoft(c.Content, width)
 	}
 
@@ -94,6 +96,9 @@ type CellStyle struct {
 	// WrapText defines if the text should be wrapped.
 	WrapText *bool
 
+	// Markdown defines if the text should be rendered as markdown.
+	Markdown *bool
+
 	// TextAttrs defines the text attributes.
 	TextAttrs text.Colors
 
@@ -113,6 +118,9 @@ func (cs *CellStyle) merge(other *CellStyle) *CellStyle {
 	cs.Align = other.Align
 	if other.WrapText != nil {
 		cs.WrapText = other.WrapText
+	}
+	if other.Markdown != nil {
+		cs.Markdown = other.Markdown
 	}
 	cs.TextAttrs = append(cs.TextAttrs, other.TextAttrs...)
 	cs.CellAttrs = append(cs.CellAttrs, other.CellAttrs...)

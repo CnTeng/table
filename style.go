@@ -8,6 +8,8 @@ type TableStyle struct {
 
 	// WrapText defines if the text should be wrapped.
 	WrapText bool
+	// Markdown defines if the text should be rendered as markdown.
+	Markdown bool
 	// HideEmpty defines if empty rows should be hidden.
 	HideEmpty bool
 
@@ -21,6 +23,7 @@ var defaultTableStyle = &TableStyle{
 	DefaultWidth:  80,
 	FitToTerminal: true,
 	WrapText:      false,
+	Markdown:      false,
 	HideEmpty:     true,
 	OuterPadding:  0,
 	InnerPadding:  1,
