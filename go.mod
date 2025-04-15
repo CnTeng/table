@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/jedib0t/go-pretty/v6 v6.6.7
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.7.9
 	golang.org/x/term v0.30.0
 )
 
