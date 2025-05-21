@@ -1,5 +1,5 @@
 {
-  description = "Simple table for go";
+  description = "Simple table for go.";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -35,7 +35,7 @@
         {
           devShells.default = pkgs.mkShell {
             packages = with pkgs; [
-              go_1_24
+              go
               config.treefmt.build.wrapper
             ];
             CGO_ENABLED = "0";
@@ -47,14 +47,10 @@
             treefmt.enable = true;
           };
 
-          treefmt = {
-            projectRootFile = "flake.nix";
-
-            programs = {
-              gofumpt.enable = true;
-              nixfmt.enable = true;
-              prettier.enable = true;
-            };
+          treefmt.programs = {
+            gofumpt.enable = true;
+            nixfmt.enable = true;
+            prettier.enable = true;
           };
         };
     };
