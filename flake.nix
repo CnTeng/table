@@ -10,11 +10,6 @@
       url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    treefmt = {
-      url = "github:numtide/treefmt-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -25,10 +20,7 @@
         "aarch64-linux"
       ];
 
-      imports = [
-        inputs.git-hooks-nix.flakeModule
-        inputs.treefmt.flakeModule
-      ];
+      imports = [ inputs.git-hooks-nix.flakeModule ];
 
       perSystem =
         { config, pkgs, ... }:
@@ -36,21 +28,28 @@
           devShells.default = pkgs.mkShell {
             packages = with pkgs; [
               go
-              config.treefmt.build.wrapper
+              gotools
             ];
             CGO_ENABLED = "0";
             shellHook = config.pre-commit.installationScript;
           };
 
-          pre-commit.settings.hooks = {
-            commitizen.enable = true;
-            treefmt.enable = true;
+          formatter = pkgs.nixfmt-tree.override {
+            settings.formatter.gofumpt = {
+              command = "gofumpt";
+              excludes = [ "vendor/*" ];
+              includes = [ "*.go" ];
+              options = [ "-w" ];
+            };
+            runtimeInputs = [ pkgs.gofumpt ];
           };
 
-          treefmt.programs = {
-            gofumpt.enable = true;
-            nixfmt.enable = true;
-            prettier.enable = true;
+          pre-commit.settings.hooks = {
+            treefmt = {
+              enable = true;
+              package = config.formatter;
+            };
+            commitizen.enable = true;
           };
         };
     };
