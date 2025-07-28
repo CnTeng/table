@@ -3,7 +3,7 @@ module github.com/CnTeng/table
 go 1.24.3
 
 require (
-	github.com/jedib0t/go-pretty/v6 v6.6.7
+	github.com/jedib0t/go-pretty/v6 v6.6.8
 	github.com/yuin/goldmark v1.7.12
 	golang.org/x/term v0.34.0
 )
