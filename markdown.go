@@ -18,16 +18,16 @@ var md = goldmark.New(
 )
 
 func renderMarkdown(s string) string {
-	var buf bytes.Buffer
-	if err := md.Convert([]byte(s), &buf); err != nil {
+	b := &bytes.Buffer{}
+	if err := md.Convert([]byte(s), b); err != nil {
 		return s
 	}
-	return buf.String()
+	return b.String()
 }
 
 type ansiRenderer struct{}
 
-func newAnsiRenderer() *ansiRenderer {
+func newAnsiRenderer() renderer.Renderer {
 	return &ansiRenderer{}
 }
 
@@ -40,6 +40,18 @@ func (r *ansiRenderer) Render(w io.Writer, source []byte, n ast.Node) error {
 			if entering {
 				_, _ = w.Write(node.Segment.Value(source))
 			}
+
+		case *ast.Link:
+			if entering {
+				_, _ = w.Write([]byte(text.Bold.EscapeSeq()))
+			} else {
+				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
+				_, _ = w.Write([]byte(" "))
+				_, _ = w.Write([]byte(text.Underline.EscapeSeq()))
+				_, _ = w.Write(node.Destination)
+				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
+			}
+
 		case *ast.Emphasis:
 			if entering {
 				switch node.Level {
@@ -51,6 +63,7 @@ func (r *ansiRenderer) Render(w io.Writer, source []byte, n ast.Node) error {
 			} else {
 				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
 			}
+
 		case *east.Strikethrough:
 			if entering {
 				_, _ = w.Write([]byte(text.CrossedOut.EscapeSeq()))
