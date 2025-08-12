@@ -25,10 +25,32 @@ func renderMarkdown(s string) string {
 	return b.String()
 }
 
-type ansiRenderer struct{}
+type ansiRenderer struct {
+	styleStack []string
+}
 
 func newAnsiRenderer() renderer.Renderer {
-	return &ansiRenderer{}
+	return &ansiRenderer{
+		styleStack: []string{},
+	}
+}
+
+func (r *ansiRenderer) pushStyle(seq string) {
+	r.styleStack = append(r.styleStack, seq)
+}
+
+func (r *ansiRenderer) popStyle() {
+	if len(r.styleStack) > 0 {
+		r.styleStack = r.styleStack[:len(r.styleStack)-1]
+	}
+}
+
+func (r *ansiRenderer) styles() string {
+	s := ""
+	for _, seq := range r.styleStack {
+		s += seq
+	}
+	return s
 }
 
 func (r *ansiRenderer) AddOptions(...renderer.Option) {}
@@ -54,21 +76,30 @@ func (r *ansiRenderer) Render(w io.Writer, source []byte, n ast.Node) error {
 
 		case *ast.Emphasis:
 			if entering {
+				seq := ""
 				switch node.Level {
 				case 1:
-					_, _ = w.Write([]byte(text.Italic.EscapeSeq()))
+					seq = text.Italic.EscapeSeq()
 				case 2:
-					_, _ = w.Write([]byte(text.Bold.EscapeSeq()))
+					seq = text.Bold.EscapeSeq()
 				}
+				r.pushStyle(seq)
+				_, _ = w.Write([]byte(seq))
 			} else {
+				r.popStyle()
 				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
+				_, _ = w.Write([]byte(r.styles()))
 			}
 
 		case *east.Strikethrough:
 			if entering {
-				_, _ = w.Write([]byte(text.CrossedOut.EscapeSeq()))
+				seq := text.CrossedOut.EscapeSeq()
+				r.pushStyle(seq)
+				_, _ = w.Write([]byte(seq))
 			} else {
+				r.popStyle()
 				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
+				_, _ = w.Write([]byte(r.styles()))
 			}
 		}
 		return ast.WalkContinue, nil
