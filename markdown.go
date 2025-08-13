@@ -63,6 +63,17 @@ func (r *ansiRenderer) Render(w io.Writer, source []byte, n ast.Node) error {
 				_, _ = w.Write(node.Segment.Value(source))
 			}
 
+		case *ast.CodeSpan:
+			if entering {
+				seq := text.Bold.EscapeSeq()
+				r.pushStyle(seq)
+				_, _ = w.Write([]byte(seq))
+			} else {
+				r.popStyle()
+				_, _ = w.Write([]byte(text.Reset.EscapeSeq()))
+				_, _ = w.Write([]byte(r.styles()))
+			}
+
 		case *ast.Link:
 			if entering {
 				_, _ = w.Write([]byte(text.Bold.EscapeSeq()))
@@ -102,6 +113,7 @@ func (r *ansiRenderer) Render(w io.Writer, source []byte, n ast.Node) error {
 				_, _ = w.Write([]byte(r.styles()))
 			}
 		}
+
 		return ast.WalkContinue, nil
 	})
 }
