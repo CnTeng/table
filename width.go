@@ -48,9 +48,9 @@ func (ws widths) shrink(minWidths []int, extra int) {
 	})
 
 	for _, w := range wd {
-		shrinked := min(w.diff, extra)
-		ws[w.idx] -= shrinked
-		extra -= shrinked
+		shrunk := min(w.diff, extra)
+		ws[w.idx] -= shrunk
+		extra -= shrunk
 		if extra == 0 {
 			return
 		}
