@@ -30,7 +30,6 @@
               go
               gotools
             ];
-            CGO_ENABLED = "0";
             shellHook = config.pre-commit.installationScript;
           };
 
