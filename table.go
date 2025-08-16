@@ -1,3 +1,5 @@
+// Package table offers an easy way to generate tables similar to Taskwarrior,
+// featuring 256-color support, automatic text wrapping and Markdown rendering.
 package table
 
 import (
