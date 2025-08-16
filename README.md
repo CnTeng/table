@@ -16,7 +16,7 @@ featuring 256-color support, automatic text wrapping and Markdown rendering.
 
 ![Preview](https://github.com/user-attachments/assets/b9ef5d14-fb84-4882-9170-106f8166e137)
 
-## Credit
+## Credits
 
-- [todoist](https://github.com/sachaos/todoist)
-- [todoist-net](https://github.com/olsh/todoist-net)
+- [table](https://github.com/rodaine/table)
+- [go-pretty](https://github.com/jedib0t/go-pretty)
