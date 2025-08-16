@@ -96,7 +96,15 @@ func NewTableWithStyle(style *TableStyle) Table {
 }
 
 func (t *table) SetStyle(style *TableStyle) {
+	width := style.DefaultWidth
+	if style.FitToTerminal {
+		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil {
+			width = w
+		}
+	}
+
 	t.style = style
+	t.width = width
 }
 
 func (t *table) AddHeader(header ...string) {
