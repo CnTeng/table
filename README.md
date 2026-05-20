@@ -1,5 +1,8 @@
 # table
 
+> [!WARNING]
+> This project has been archived since I no longer use Todoist.
+
 [![Go Reference](https://pkg.go.dev/badge/github.com/CnTeng/table.svg)](https://pkg.go.dev/github.com/CnTeng/table)
 
 Package table offers an easy way to generate tables similar to Taskwarrior,
